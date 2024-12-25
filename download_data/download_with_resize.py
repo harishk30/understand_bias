@@ -4,24 +4,24 @@ import os
 import random
 import requests
 from concurrent import futures
-from concurrent.futures import ThreadPoolExecutor
 from PIL import Image
-from requests.exceptions import Timeout
 from torchvision import transforms
 from tqdm import tqdm
 
-
+# Argument parser setup
 parser = argparse.ArgumentParser()
 parser.add_argument(
     '--tsv_path',
     type=str,
     default="",
-    help=('path to the tsv file'))
+    help='Path to the TSV file containing image URLs'
+)
 parser.add_argument(
     '--data_dir',
     type=str,
     default="",
-    help=('dir to store data'))
+    help='Directory to store downloaded data'
+)
 args = parser.parse_args()
 
 # Create the root folder
@@ -35,9 +35,9 @@ all_urls = []
 with open(args.tsv_path, "r") as tsvfile:
     reader = csv.reader(tsvfile, delimiter='\t')
     all_urls = [row[0] for row in reader]
-    print(f"Try to download total {len(all_urls)} images from urls")
+    print(f"Try to download total {len(all_urls)} images from URLs")
 
-# shuffle all urls so that each directory contains random images
+# Shuffle all URLs so that each directory contains random images
 random.shuffle(all_urls)
 
 headers = {
@@ -50,25 +50,36 @@ trans = transforms.Resize(500, interpolation=transforms.InterpolationMode.BICUBI
 def download_image(i, img_url, progress_bar):
     global SUCCESSFUL_COUNT
     progress_bar.update(1)
+
+    # Determine subfolder and image path
+    subfolder = str(i // 10000)
+    subfolder_path = os.path.join(args.data_dir, subfolder)
+    image_path = os.path.join(subfolder_path, f"image_{i}.png")
+
+    # Skip download if the image already exists
+    if os.path.exists(image_path):
+        print(f"Image index {i} already exists. Skipping download.")
+        SUCCESSFUL_COUNT += 1
+        progress_bar.set_description(f"Successful: {SUCCESSFUL_COUNT}")
+        return
+
     try:
+        # Download image data
         img_data = requests.get(img_url, headers=headers, timeout=10).content
 
-        # Group every 10k download trial into a subfolder
-        subfolder = str(i // 10000)
-        subfolder_path = os.path.join(args.data_dir, subfolder)
-
+        # Ensure subfolder exists
         if not os.path.exists(subfolder_path):
             os.makedirs(subfolder_path)
 
-        image_path = os.path.join(subfolder_path, f"image_{i}.png")
-
+        # Save the image
         with open(image_path, "wb") as img_file:
             img_file.write(img_data)
 
         try:
+            # Verify and process the image
             with Image.open(image_path) as img:
                 img.load()  # Load image data to verify the image
-                # resize the image to shorter side 500
+                # Resize the image to shorter side 500
                 if min(img.size) > 500:
                     if img.mode == "CMYK":
                         img = img.convert("RGB")
