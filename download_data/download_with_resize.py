@@ -22,6 +22,12 @@ parser.add_argument(
     default="",
     help='Directory to store downloaded data'
 )
+parser.add_argument(
+    '--start_index',
+    type=int,
+    default=0,
+    help='Start index for downloading images (default is 0)'
+)
 args = parser.parse_args()
 
 # Create the root folder
@@ -99,11 +105,19 @@ def download_image(i, img_url, progress_bar):
         print(f"An error occurred for image index {i}: {e}, url: {img_url}")
         pass
 
-# Initialize the tqdm progress bar
-progress_bar = tqdm(total=len(all_urls), desc='Downloading images', leave=True)
+# Initialize the tqdm progress bar with start_index
+progress_bar = tqdm(
+    total=len(all_urls),
+    desc='Downloading images',
+    leave=True,
+    initial=args.start_index
+)
 
 # Download the images in parallel
 with futures.ThreadPoolExecutor(max_workers=80) as executor:
-    executor.map(download_image, range(len(all_urls)), all_urls, [progress_bar for _ in range(len(all_urls))])
+    executor.map(download_image, 
+                 range(args.start_index, len(all_urls)), 
+                 all_urls[args.start_index:], 
+                 [progress_bar for _ in range(len(all_urls[args.start_index:]))])
 
 progress_bar.close()
