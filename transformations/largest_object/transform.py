@@ -38,7 +38,7 @@ class Image_Dataset(Dataset):
     """
     def __init__(self, args):
         # We'll save to "depth" here, but you can change to another key if desired
-        self.output_dir = os.path.join(SAVE_ROOTS['depth'], args.dataset, args.split)
+        self.output_dir = os.path.join(SAVE_ROOTS['largest_object'], args.dataset, args.split)
         os.makedirs(self.output_dir, exist_ok=True)
 
         self.root = os.path.join(IMAGE_ROOTS[args.dataset], args.split)

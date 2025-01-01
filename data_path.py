@@ -1,7 +1,7 @@
 IMAGE_ROOTS = {
-    'cc': '',
-    'datacomp': '',
-    'yfcc': '',
+    'cc': '/content/drive/MyDrive/cc_split',
+    'datacomp': '/content/drive/MyDrive/datacomp_split',
+    'yfcc': '/content/drive/MyDrive/yfcc_split',
 }
 
 SAVE_ROOTS = {
@@ -16,4 +16,5 @@ SAVE_ROOTS = {
     'text_to_image': '',
     'uncon_gen': '',
     'vae': '',
+    'largest_object': '/content/drive/MyDrive/largest_object',
 }

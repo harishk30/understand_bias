@@ -253,7 +253,7 @@ def build_dataset(is_train, args):
                    for root, name in zip(roots, names)]
         nb_classes = len(dataset)
         dataset = CompositeDataset(names, dataset)
-    elif args.transformation in ["text_to_image", "uncon_gen", "depth", "hog", "sift", "sam", "seg", "object_det", "canny"]:
+    elif args.transformation in ["text_to_image", "uncon_gen", "depth", "hog", "sift", "sam", "seg", "object_det", "canny", "largest_object"]:
         names = args.data_names.split(',')
         roots = [os.path.join(SAVE_ROOTS[args.transformation], name, 'train' if is_train else 'val') for name in names]
         dataset = [SimpleDataset(root, name, transform, args.num_samples, transformation=args.transformation, patch_size=args.patch_size, freq_thres=args.freq_thres, filter_order=args.filter_order, filter_ideal=args.filter_ideal) \
