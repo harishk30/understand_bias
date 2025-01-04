@@ -4,7 +4,6 @@ import numpy as np
 import os
 import random
 import sys
-import time
 import torch
 
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
@@ -14,10 +13,6 @@ from torchvision import transforms
 from torchvision.models.detection import maskrcnn_resnet50_fpn
 
 from PIL import Image, ImageFile, PngImagePlugin
-
-# ------------------------------------------------------------------------
-# If you get errors related to truncated images, these lines can help
-# ------------------------------------------------------------------------
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 PngImagePlugin.MAX_TEXT_CHUNK = 100 * (1024**2)
 
@@ -36,30 +31,13 @@ from data_path import IMAGE_ROOTS, SAVE_ROOTS
 import transformations.trans_utils as utils
 
 
-def safe_image_open(path, tries=5, sleep=1.0):
-    """
-    Attempts to open a file with Pillow up to `tries` times,
-    sleeping for `sleep` seconds between attempts if an error occurs.
-    """
-    last_exception = None
-    for i in range(tries):
-        try:
-            with open(path, 'rb') as f:
-                return Image.open(f).convert("RGB")
-        except Exception as e:
-            last_exception = e
-            print(f"Attempt {i+1} to open {path} failed: {e}")
-            time.sleep(sleep)
-    # If all attempts failed, raise the last exception to be caught above
-    raise last_exception
-
-
 class Image_Dataset(Dataset):
     """
     Loads images from IMAGE_ROOTS[args.dataset]/args.split,
     resizes them if min dimension > 500, then returns them as NumPy arrays.
     """
     def __init__(self, args):
+        # We'll save to "depth" here, but you can change to another key if desired
         self.output_dir = os.path.join(SAVE_ROOTS['largest_object'], args.dataset, args.split)
         os.makedirs(self.output_dir, exist_ok=True)
 
@@ -91,8 +69,9 @@ class Image_Dataset(Dataset):
         )
 
         try:
-            # Use our safe_image_open function to handle I/O errors
-            image = safe_image_open(path, tries=5, sleep=1.0)
+            # Load PIL image
+            with open(path, 'rb') as f:
+                image = Image.open(f).convert("RGB")
 
             if min(image.size) > 500:
                 image = self.preprocess(image)
@@ -107,9 +86,8 @@ class Image_Dataset(Dataset):
                 "save_path": save_path,
                 "path": path
             }
-
         except Exception as e:
-            print(f"Error opening {path} after multiple retries: {e}")
+            print(f"Error opening {path}: {e}")
             return {
                 "image": None,
                 "height": 0,
@@ -120,9 +98,9 @@ class Image_Dataset(Dataset):
 
 
 def extract_largest_object_maskrcnn(
-    image_np: np.ndarray,
-    model: torch.nn.Module,
-    device: str = "cuda",
+    image_np: np.ndarray, 
+    model: torch.nn.Module, 
+    device: str = "cuda", 
     score_threshold: float = 0.5
 ):
     """
@@ -166,7 +144,7 @@ def extract_largest_object_maskrcnn(
     # Binary mask for the largest object
     largest_mask = (masks[largest_idx, 0] > 0.5).cpu().numpy()
 
-    # Make a copy to avoid modifying the original
+    # Make a copy to avoid modifying original
     masked_np = image_np.copy()
     # Turn everything else white
     masked_np[~largest_mask] = [255, 255, 255]
@@ -265,6 +243,7 @@ if __name__ == "__main__":
                     out_pil.save(save_path)
 
             metric_logger.update(empty_rate=empty_count / len(batch))
+
             # Clean up
             del batch
             torch.cuda.empty_cache()
