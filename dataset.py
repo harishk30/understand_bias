@@ -12,42 +12,69 @@ from timm.data.constants import \
 from numpy.fft import fft2, ifft2, fftshift, ifftshift
 from data_path import IMAGE_ROOTS, SAVE_ROOTS
 
-class SimpleDataset(Dataset):
-    def __init__(self, root, name, trans, num_samples, transformation=None, patch_size=16, freq_thres=40, filter_order=2, filter_ideal=True):
-        self.paths = glob.glob(os.path.join(root, "*.jpg")) + \
-            glob.glob(os.path.join(root, "*.png")) + glob.glob(os.path.join(root, "*.JPEG"))
+import glob
+import os
+import torch
+import time
+
+class SimpleDataset:
+    def __init__(self, root, name, trans, num_samples, transformation=None, patch_size=16, freq_thres=40, filter_order=2, filter_ideal=True, max_retries=10, retry_delay=2):
+        self.paths = []
+        retries = 0
+        
+        # Retry logic for paths
+        while not self.paths and retries < max_retries:
+            self.paths = glob.glob(os.path.join(root, "*.jpg")) + \
+                         glob.glob(os.path.join(root, "*.png")) + \
+                         glob.glob(os.path.join(root, "*.JPEG"))
+            if not self.paths:
+                retries += 1
+                print(f"No images found. Retrying {retries}/{max_retries}...")
+                time.sleep(retry_delay)  # Wait before retrying
+                
+        if not self.paths:
+            raise ValueError(f"No images found in {root} after {max_retries} retries.")
+        
         self.paths = sorted(self.paths)
         if num_samples is not None:
             self.paths = self.paths[:num_samples]
+        
         self.name = name
         self.transformation = transformation
         self.patch_size = patch_size
+        
+        # Load or generate random permutation for pixels
         if os.path.exists("randperm_pixel.pth"):
             self.rand_perm_pixel = torch.load("randperm_pixel.pth")
         else:
             self.rand_perm_pixel = torch.randperm(224 * 224)
             torch.save(self.rand_perm_pixel, "randperm_pixel.pth")
+        
+        # Load or generate random permutation for patches
         if os.path.exists(f"randperm_patch{patch_size}.pth"):
             self.rand_perm_patch = torch.load(f"randperm_patch{patch_size}.pth")
         else:
             self.rand_perm_patch = torch.randperm(224 // patch_size * 224 // patch_size)
             torch.save(self.rand_perm_patch, f"randperm_patch{patch_size}.pth")
+        
+        # Initialize filters based on transformation type
         if self.transformation == "hpf":
             if not filter_ideal:
                 self.highpass_filter = ButterworthHighPass(224, 224, freq_thres, filter_order)
-                print(f"using butterworth high-pass filter of threshold {freq_thres} and filter order {filter_order}")
+                print(f"Using Butterworth high-pass filter with threshold {freq_thres} and filter order {filter_order}")
             else:
                 self.highpass_filter = IdealHighPass(224, 224, freq_thres)
-                print(f"using ideal high-pass filter of threshold {freq_thres}")
+                print(f"Using ideal high-pass filter with threshold {freq_thres}")
         elif self.transformation == "lpf":
             if not filter_ideal:
                 self.lowpass_filter = ButterworthLowPass(224, 224, freq_thres, filter_order)
-                print(f"using butterworth low-pass filter of threshold {freq_thres} and filter_order {filter_order}")
+                print(f"Using Butterworth low-pass filter with threshold {freq_thres} and filter order {filter_order}")
             else:
                 self.lowpass_filter = IdealLowPass(224, 224, freq_thres)
-                print(f"using ideal low-pass filter of threshold {freq_thres}")
+                print(f"Using ideal low-pass filter with threshold {freq_thres}")
+        
         self.trans = trans
-        print(f"SimpleDataset(Name: {self.name}, Samples: {len(self.paths)}, Transformation: {self.transformation})")        
+        print(f"SimpleDataset(Name: {self.name}, Samples: {len(self.paths)}, Transformation: {self.transformation})")
     
     def __len__(self):
         return len(self.paths)
