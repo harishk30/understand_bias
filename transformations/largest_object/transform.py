@@ -6,7 +6,7 @@ import random
 import sys
 import torch
 
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, DistributedSampler
 import torch.backends.cudnn as cudnn
 
 from torchvision import transforms
@@ -18,7 +18,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 PngImagePlugin.MAX_TEXT_CHUNK = 100 * (1024**2)
 
 # ------------------------------------------------------------------------
-# Adjust this import path if needed
+# Adjust this import path if needed, depending on your folder structure
 # ------------------------------------------------------------------------
 current_file_path = os.path.abspath(__file__)
 sys.path.append(
@@ -94,7 +94,11 @@ def extract_largest_object_maskrcnn(
     score_threshold: float = 0.5
 ):
     """
-    Extract the largest object mask using Mask R-CNN.
+    1. Convert image_np (H,W,3) to a Torch tensor, run Mask R-CNN.
+    2. Filter detections with confidence >= score_threshold.
+    3. If none pass, return None (indicating "no objects").
+    4. Otherwise, pick the largest object mask (by area).
+    5. Everything else is turned WHITE (255,255,255) in the image.
     """
     transform = transforms.Compose([transforms.ToTensor()])
     image_tensor = transform(Image.fromarray(image_np)).to(device)
@@ -124,6 +128,24 @@ def extract_largest_object_maskrcnn(
     return masked_np
 
 
+def init_distributed_mode(args):
+    """
+    Initialize distributed mode for multi-GPU setup.
+    """
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        args.rank = int(os.environ["RANK"])
+        args.world_size = int(os.environ["WORLD_SIZE"])
+        args.distributed = True
+    else:
+        args.rank = 0
+        args.world_size = 1
+        args.distributed = False
+
+    torch.distributed.init_process_group(
+        backend="nccl", init_method="env://", world_size=args.world_size, rank=args.rank
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(parents=[utils.get_args_parser()], add_help=False)
     parser.add_argument('--dataset', type=str, default="cc")
@@ -133,7 +155,8 @@ if __name__ == "__main__":
     parser.add_argument('--score_threshold', type=float, default=0.5)
     args = parser.parse_args()
 
-    utils.init_distributed_mode(args)
+    # Distributed setup (if needed)
+    init_distributed_mode(args)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = maskrcnn_resnet50_fpn(pretrained=True).to(device)
     model.eval()
