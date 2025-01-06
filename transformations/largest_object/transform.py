@@ -1,10 +1,10 @@
 import argparse
-import glob
 import numpy as np
 import os
 import random
 import sys
 import torch
+import zipfile
 
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 import torch.backends.cudnn as cudnn
@@ -33,25 +33,43 @@ import transformations.trans_utils as utils
 
 class Image_Dataset(Dataset):
     """
-    Loads images from IMAGE_ROOTS[args.dataset]/args.split,
-    resizes them if min dimension > 500, then returns them as NumPy arrays.
+    Loads images from a single zip file located at IMAGE_ROOTS[args.dataset],
+    which contains 'train' and 'val' subdirectories.
+
+    Resizes them if min dimension > 500, then returns them as NumPy arrays.
     """
     def __init__(self, args):
-        # We'll save to "depth" here, but you can change to another key if desired
+        # Define the output directory based on split
         self.output_dir = os.path.join(SAVE_ROOTS['largest_object'], args.dataset, args.split)
         os.makedirs(self.output_dir, exist_ok=True)
 
-        self.root = os.path.join(IMAGE_ROOTS[args.dataset], args.split)
-        self.paths = (
-            glob.glob(os.path.join(self.root, "*.jpg")) +
-            glob.glob(os.path.join(self.root, "*.png")) +
-            glob.glob(os.path.join(self.root, "*.JPEG"))
-        )
+        # Path to the zip file
+        self.zip_path = IMAGE_ROOTS[args.dataset]
+        if not os.path.isfile(self.zip_path):
+            raise FileNotFoundError(f"Zip file not found: {self.zip_path}")
+
+        # Open the zip file
+        self.zip_file = zipfile.ZipFile(self.zip_path, 'r')
+
+        # Define the path inside the zip corresponding to the split
+        split_folder = f"{args.split}/"  # Ensure it ends with '/'
+
+        # Gather all image files within the split folder
+        self.file_list = [
+            f for f in self.zip_file.namelist()
+            if f.startswith(split_folder) and f.lower().endswith((".jpg", ".jpeg", ".png"))
+        ]
+
+        # If a subset is requested
         if args.num is not None:
-            self.paths = self.paths[: args.num]
-        assert len(self.paths) == args.num, (
-            f"Not enough images in {args.dataset}/{args.split} split"
-        )
+            self.file_list = self.file_list[: args.num]
+
+        # Check we have enough images
+        if args.num is not None:
+            assert len(self.file_list) == args.num, (
+                f"Not enough images in {args.dataset}/{args.split} inside the zip. "
+                f"Requested {args.num}, got {len(self.file_list)}."
+            )
 
         # Simple resize if min dimension > 500
         self.preprocess = transforms.Resize(
@@ -59,41 +77,56 @@ class Image_Dataset(Dataset):
         )
 
     def __len__(self):
-        return len(self.paths)
+        return len(self.file_list)
 
     def __getitem__(self, i):
-        path = self.paths[i]
+        """
+        Reads an image from the zip file, possibly resizes it, and returns:
+            {
+                "image":     np.array(H, W, 3),
+                "height":    int,
+                "width":     int,
+                "save_path": str,
+                "path":      str (zip internal path)
+            }
+        """
+        file_name = self.file_list[i]
+
+        # Derive a filename to save the processed output (PNG)
+        # e.g., 'train/image1.jpg' -> 'image1.png'
+        base_name = os.path.basename(file_name)
         save_path = os.path.join(
             self.output_dir,
-            os.path.splitext(os.path.basename(path))[0] + ".png"
+            os.path.splitext(base_name)[0] + ".png"
         )
 
         try:
-            # Load PIL image
-            with open(path, 'rb') as f:
+            # Open the file stream from within the zip
+            with self.zip_file.open(file_name) as f:
                 image = Image.open(f).convert("RGB")
 
+            # Resize if min dimension > 500
             if min(image.size) > 500:
                 image = self.preprocess(image)
 
-            # Convert to NumPy
-            image_np = np.array(image, dtype=np.uint8)  # (H, W, 3)
+            # Convert to NumPy (H, W, 3)
+            image_np = np.array(image, dtype=np.uint8)
 
             return {
                 "image": image_np,
                 "height": image_np.shape[0],
                 "width": image_np.shape[1],
                 "save_path": save_path,
-                "path": path
+                "path": file_name
             }
         except Exception as e:
-            print(f"Error opening {path}: {e}")
+            print(f"Error opening {file_name} from zip: {e}")
             return {
                 "image": None,
                 "height": 0,
                 "width": 0,
                 "save_path": save_path,
-                "path": path
+                "path": file_name
             }
 
 
@@ -126,7 +159,6 @@ def extract_largest_object_maskrcnn(
 
     # Filter by confidence threshold
     keep = [i for i, s in enumerate(scores) if s >= score_threshold]
-
     if len(keep) == 0:
         # No objects above threshold
         return None
@@ -154,10 +186,14 @@ def extract_largest_object_maskrcnn(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(parents=[utils.get_args_parser()], add_help=False)
-    parser.add_argument('--dataset', type=str, default="cc")
-    parser.add_argument('--split', type=str, choices=["train", "val"], default="val")
-    parser.add_argument('--batch_size', type=int, default=1)
-    parser.add_argument('--num', type=int, default=None)
+    parser.add_argument('--dataset', type=str, default="cc",
+                        help="Dataset name, corresponding to keys in IMAGE_ROOTS.")
+    parser.add_argument('--split', type=str, choices=["train", "val"], default="val",
+                        help="Dataset split to process.")
+    parser.add_argument('--batch_size', type=int, default=1,
+                        help="Batch size for DataLoader.")
+    parser.add_argument('--num', type=int, default=None,
+                        help="If set, only process this many images from the zip.")
     parser.add_argument('--score_threshold', type=float, default=0.5,
                         help="Confidence threshold for Mask R-CNN.")
     args = parser.parse_args()
@@ -200,7 +236,7 @@ if __name__ == "__main__":
         sampler=sampler,
         batch_size=args.batch_size,
         num_workers=16,
-        collate_fn=lambda x: x,  # trivial collate for dict
+        collate_fn=lambda x: x,  # trivial collate for list of dicts
         drop_last=False,
     )
 
@@ -214,7 +250,7 @@ if __name__ == "__main__":
             # Filter out any images that failed to load
             tmp = [b for b in batch if b['image'] is not None]
             if len(tmp) == 0:
-                # all images in this batch failed
+                # All images in this batch failed
                 metric_logger.update(empty_rate=1.0)
                 metric_logger.synchronize_between_processes()
                 continue

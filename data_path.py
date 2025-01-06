@@ -1,6 +1,6 @@
 IMAGE_ROOTS = {
     'cc': '/content/drive/MyDrive/cc_split',
-    'datacomp': '/content/drive/MyDrive/datacomp_split',
+    'datacomp': '/content/drive/MyDrive/datacomp_split.zip',
     'yfcc': '/content/drive/MyDrive/yfcc_split',
 }
 
