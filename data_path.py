@@ -1,7 +1,7 @@
 IMAGE_ROOTS = {
-    'cc': '/content/drive/MyDrive/cc_split',
-    'datacomp': '/content/drive/MyDrive/datacomp_split',
-    'yfcc': '/content/drive/MyDrive/yfcc_split',
+    'cc': '/content/drive/MyDrive/cc_split/train',
+    'datacomp': '/content/drive/MyDrive/datacomp_split/train',
+    'yfcc': '/content/drive/MyDrive/yfcc_split/train',
 }
 
 SAVE_ROOTS = {
